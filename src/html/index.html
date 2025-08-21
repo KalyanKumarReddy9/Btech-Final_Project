@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voting - Decentralized Voting System</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../css/index.css">
+</head>
+<body>
+    <script type="module">
+        const token = localStorage.getItem("jwtTokenVoter");
+        if (!token) {
+            alert("Please login first");
+            window.location.href = "login.html";
+        }
+    </script>
+
+    <div class="voting-container">
+        <div class="header">
+            <div class="logo">
+                <i class="fab fa-ethereum"></i>
+            </div>
+            <h1 class="main-title">Decentralized Voting</h1>
+            <p class="subtitle">Cast Your Vote Securely</p>
+            <div class="voting-dates" id="dates"></div>
+        </div>
+
+        <!-- Wallet Connection Section -->
+        <div class="wallet-section">
+            <button id="connectWalletBtn" class="wallet-btn">
+                <i class="fas fa-wallet"></i> Connect Wallet
+            </button>
+            <button id="switchAccountBtn" class="wallet-btn secondary">
+                <i class="fas fa-sync-alt"></i> Switch Account
+            </button>
+            <div id="connectedAddress" class="wallet-address"></div>
+        </div>
+
+        <div id="error-message" class="error-message">
+            <i class="fas fa-exclamation-circle"></i>
+            <span id="error-text"></span>
+        </div>
+
+        <div class="voting-content">
+            <div class="candidates-grid" id="candidatesList">
+                <!-- Candidates will be populated here -->
+            </div>
+        </div>
+    </div>
+
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+    <script type="module">
+        import { attachWalletUI, attachSwitchAccountUI } from '/js/wallet.js';
+        
+        attachWalletUI({ 
+            buttonId: 'connectWalletBtn', 
+            displayId: 'connectedAddress' 
+        });
+        
+        attachSwitchAccountUI({ 
+            buttonId: 'switchAccountBtn', 
+            displayId: 'connectedAddress' 
+        });
+
+        const token = localStorage.getItem("jwtTokenVoter");
+        const headers = { Authorization: `Bearer ${token}` };
+
+        async function loadDates() {
+          try {
+            const res = await fetch("http://127.0.0.1:8000/dates", { headers });
+            const data = await res.json();
+            if (data.startDate && data.endDate) {
+              const start = new Date(data.startDate);
+              const end = new Date(data.endDate);
+              document.getElementById("dates").textContent = `${start.toDateString()} - ${end.toDateString()}`;
+            } else {
+              document.getElementById("dates").textContent = "Not defined";
+            }
+          } catch (e) {
+            console.error(e);
+          }
+        }
+
+        async function loadCandidates() {
+          try {
+            const res = await fetch("http://127.0.0.1:8000/candidates", { headers });
+            const data = await res.json();
+            const candidatesList = document.getElementById("candidatesList");
+            candidatesList.innerHTML = "";
+            (data.candidates || []).forEach(c => {
+              const candidate = document.createElement("div");
+              candidate.innerHTML = `
+                <input class="form-check-input" type="radio" name="candidate" value="${c.id}" id="c${c.id}">
+                <label for="c${c.id}">${c.name} (${c.party}) - ${c.vote_count} votes</label>
+              `;
+              candidatesList.appendChild(candidate);
+            });
+          } catch (e) {
+            console.error(e);
+          }
+        }
+
+        async function checkVoted() {
+          try {
+            const res = await fetch("http://127.0.0.1:8000/has-voted", { headers });
+            const data = await res.json();
+            if (!data.hasVoted) {
+              document.getElementById("error-message").style.display = "none";
+            } else {
+              document.getElementById("error-text").textContent = "You have already voted.";
+              document.getElementById("error-message").style.display = "block";
+            }
+          } catch (e) {
+            console.error(e);
+          }
+        }
+
+        async function submitVote() {
+          const selected = document.querySelector("input[name='candidate']:checked");
+          if (!selected) {
+            document.getElementById("error-text").textContent = "Please select a candidate.";
+            document.getElementById("error-message").style.display = "block";
+            return;
+          }
+          try {
+            const res = await fetch("http://127.0.0.1:8000/vote", {
+              method: "POST",
+              headers: { ...headers, "Content-Type": "application/json" },
+              body: JSON.stringify({ candidateId: parseInt(selected.value) })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || "Failed to vote");
+            document.getElementById("error-message").style.display = "none";
+            document.getElementById("error-text").textContent = "Voted successfully.";
+            document.getElementById("error-message").style.display = "block";
+            await loadCandidates();
+          } catch (e) {
+            console.error(e);
+            document.getElementById("error-text").textContent = e.message;
+            document.getElementById("error-message").style.display = "block";
+          }
+        }
+
+        window.addEventListener("load", () => {
+          loadDates();
+          loadCandidates();
+          checkVoted();
+          document.addEventListener("click", (e) => {
+            if (e.target.name === "candidate") {
+              document.getElementById("error-message").style.display = "none";
+            }
+          });
+          document.addEventListener("click", (e) => {
+            if (e.target.id === "candidatesList") {
+              submitVote();
+            }
+          });
+        });
+    </script>
+    <script src="../js/index.js" type="module"></script>
+</body>
+</html>

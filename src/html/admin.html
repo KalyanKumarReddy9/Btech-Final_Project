@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - Decentralized Voting System</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../css/admin.css">
+</head>
+<body>
+    <div class="admin-container">
+        <div class="header">
+            <div class="logo">
+                <i class="fab fa-ethereum"></i>
+            </div>
+            <h1 class="main-title">Admin Panel</h1>
+            <p class="subtitle">Manage Voting System</p>
+        </div>
+
+        <!-- Wallet Connection Section -->
+        <div class="wallet-section">
+            <button id="connectWalletBtn" class="wallet-btn">
+                <i class="fas fa-wallet"></i> Connect Wallet
+            </button>
+            <button id="switchAccountBtn" class="wallet-btn secondary">
+                <i class="fas fa-sync-alt"></i> Switch Account
+            </button>
+            <div id="connectedAddress" class="wallet-address"></div>
+        </div>
+
+        <div id="error-message" class="error-message">
+            <i class="fas fa-exclamation-circle"></i>
+            <span id="error-text"></span>
+        </div>
+
+        <div class="admin-content">
+            <!-- Add Candidate Section -->
+            <div class="admin-section">
+                <h2>Add Candidate</h2>
+                <div class="form-group">
+                    <div class="form-row">
+                        <div class="form-col">
+                            <label for="name">Name</label>
+                            <input type="text" id="name" class="form-input" placeholder="Candidate's name" autocomplete="off">
+                        </div>
+                        <div class="form-col">
+                            <label for="party">Party</label>
+                            <input type="text" id="party" class="form-input" placeholder="Candidate's party">
+                        </div>
+                        <div class="form-col">
+                            <button id="addCandidateBtn" class="action-button">
+                                <i class="fas fa-plus"></i> Add Candidate
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Voting Dates Section -->
+            <div class="admin-section">
+                <h2>Voting Period</h2>
+                <div class="form-group">
+                    <div class="form-row">
+                        <div class="form-col">
+                            <label for="startDate">Start Date</label>
+                            <input type="date" id="startDate" class="form-input">
+                        </div>
+                        <div class="form-col">
+                            <label for="endDate">End Date</label>
+                            <input type="date" id="endDate" class="form-input">
+                        </div>
+                        <div class="form-col">
+                            <button id="setDatesBtn" class="action-button">
+                                <i class="far fa-calendar-alt"></i> Set Dates
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Results Section -->
+            <div class="admin-section">
+                <h2>Voting Results</h2>
+                <div class="results-container" id="resultsList">
+                    <!-- Results will be populated here -->
+                </div>
+                <div class="action-buttons">
+                    <button id="showResultsBtn" class="action-button">
+                        <i class="fas fa-chart-bar"></i> Show Results
+                    </button>
+                    <button id="endVotingBtn" class="action-button danger">
+                        <i class="fas fa-stop-circle"></i> End Voting
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+    <script type="module">
+        import { attachWalletUI, attachSwitchAccountUI, connectWallet } from '/js/wallet.js';
+        
+        // --- JWT Authorization Check ---
+        const token = localStorage.getItem("jwtTokenAdmin");
+
+        if (!token) {
+            alert("Please login first");
+            window.location.href = "login.html";
+        }
+
+        attachWalletUI({ 
+            buttonId: 'connectWalletBtn', 
+            displayId: 'connectedAddress' 
+        });
+        
+        attachSwitchAccountUI({ 
+            buttonId: 'switchAccountBtn', 
+            displayId: 'connectedAddress' 
+        });
+
+        // Add Candidate
+        async function addCandidate(name, party) {
+            try {
+                const response = await fetch("http://127.0.0.1:8000/add-candidate", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ name, party })
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.detail || "Failed to add candidate");
+                alert("Candidate added successfully!");
+            } catch (err) {
+                console.error(err);
+                alert(err.message);
+            }
+        }
+
+        document.getElementById("addCandidateBtn").addEventListener("click", async () => {
+            try {
+                await connectWallet(); // trigger MetaMask connect if needed
+            } catch (e) { /* ignore if user cancels */ }
+            const name = document.getElementById("name").value;
+            const party = document.getElementById("party").value;
+            addCandidate(name, party);
+        });
+
+        // Define Voting Dates
+        async function defineDates(startDate, endDate) {
+            try {
+                const response = await fetch("http://127.0.0.1:8000/set-dates", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ startDate, endDate })
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.detail || "Failed to set dates");
+                alert("Voting dates defined successfully!");
+            } catch (err) {
+                console.error(err);
+                alert(err.message);
+            }
+        }
+
+        document.getElementById("setDatesBtn").addEventListener("click", async () => {
+            try {
+                await connectWallet(); // trigger MetaMask connect if needed
+            } catch (e) { /* ignore if user cancels */ }
+            const startDate = document.getElementById("startDate").value;
+            const endDate = document.getElementById("endDate").value;
+            defineDates(startDate, endDate);
+        });
+    </script>
+    <script src="../js/admin.js" type="module"></script>
+</body>
+</html>

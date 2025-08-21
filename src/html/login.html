@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blockchain Voting - Login</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../css/login.css">
+</head>
+<body>
+    <div class="login-container">
+        <div class="header">
+            <div class="logo">
+                <i class="fab fa-ethereum"></i>
+            </div>
+            <h1 class="main-title">Decentralized Voting</h1>
+            <p class="subtitle">Using Ethereum Blockchain</p>
+        </div>
+
+        <!-- Wallet Connection Section -->
+        <div class="wallet-section">
+            <button id="connectWalletBtn" class="wallet-btn">
+                <i class="fas fa-wallet"></i> Connect Wallet
+            </button>
+            <button id="switchAccountBtn" class="wallet-btn secondary">
+                <i class="fas fa-sync-alt"></i> Switch Account
+            </button>
+            <div id="connectedAddress" class="wallet-address"></div>
+        </div>
+
+        <div id="error-message" class="error-message">
+            <i class="fas fa-exclamation-circle"></i>
+            <span id="error-text"></span>
+        </div>
+
+        <form class="login-form" id="loginForm">
+            <div class="form-group">
+                <label class="form-label" for="voter_id">Voter ID</label>
+                <input 
+                    type="text" 
+                    id="voter_id" 
+                    name="voter_id" 
+                    class="form-input" 
+                    placeholder="Enter your voter ID"
+                    required
+                >
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="password">Password</label>
+                <div class="password-group">
+                    <input 
+                        type="password" 
+                        id="password" 
+                        name="password" 
+                        class="form-input" 
+                        placeholder="Enter your password"
+                        required
+                    >
+                    <button type="button" class="password-toggle" id="togglePassword">
+                        <i class="fas fa-eye"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div class="form-group role-group">
+                <label class="form-label">Role</label>
+                <div class="radio-group">
+                    <label class="radio-label">
+                        <input type="radio" name="role" value="admin" class="radio-input">
+                        <span class="radio-custom"></span>
+                        <span class="radio-text">Admin</span>
+                    </label>
+                    <label class="radio-label">
+                        <input type="radio" name="role" value="voter" checked class="radio-input">
+                        <span class="radio-custom"></span>
+                        <span class="radio-text">Voter</span>
+                    </label>
+                </div>
+            </div>
+
+            <button type="submit" class="login-button" id="loginBtn">
+                <span class="btn-text">Login</span>
+                <span class="btn-loading">
+                    <i class="fas fa-spinner fa-spin"></i>
+                </span>
+            </button>
+        </form>
+
+        <div class="security-info">
+            <div class="security-badge">
+                <i class="fas fa-shield-alt"></i>
+                <span>Blockchain Secured</span>
+            </div>
+            <div class="security-badge">
+                <i class="fas fa-lock"></i>
+                <span>Privacy Protected</span>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+    <script type="module">
+        import { attachWalletUI, attachSwitchAccountUI } from '/js/wallet.js';
+        attachWalletUI({ 
+            buttonId: 'connectWalletBtn', 
+            displayId: 'connectedAddress' 
+        });
+        attachSwitchAccountUI({ 
+            buttonId: 'switchAccountBtn', 
+            displayId: 'connectedAddress' 
+        });
+
+        // Toggle password visibility
+        const togglePassword = document.getElementById('togglePassword');
+        const passwordInput = document.getElementById('password');
+        
+        if (togglePassword && passwordInput) {
+            togglePassword.addEventListener('click', function() {
+                const icon = this.querySelector('i');
+                const type = passwordInput.type === 'password' ? 'text' : 'password';
+                passwordInput.type = type;
+                icon.classList.toggle('fa-eye');
+                icon.classList.toggle('fa-eye-slash');
+            });
+        }
+    </script>
+    <script src="../js/login.js" type="module"></script>
+</body>
+</html>
