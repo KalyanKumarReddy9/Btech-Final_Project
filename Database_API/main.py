@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from mysql.connector import connect, Error
 import jwt
 from jwt import PyJWTError
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 
 # Load environment variables
 dotenv.load_dotenv()
@@ -138,6 +138,11 @@ class VotePayload(BaseModel):
     candidateId: int
 
 
+class VotePayloadWithAddress(BaseModel):
+    candidateId: int
+    walletAddress: str = None
+
+
 # Login endpoint
 @app.post("/login")
 async def login(voter_id: str = Form(...), password: str = Form(...), role: str | None = Form(None)):
@@ -190,7 +195,26 @@ async def add_candidate(payload: AddCandidatePayload, user: dict = Depends(get_c
 async def set_dates(payload: SetDatesPayload, user: dict = Depends(get_current_user)):
     if user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin privileges required")
+
+    def _parse_date(value: str) -> date:
+        if value is None:
+            raise HTTPException(status_code=400, detail="startDate and endDate are required")
+        # Accept YYYY-MM-DD or ISO datetime strings
+        try:
+            if 'T' in value:
+                # strip trailing Z if present
+                v = value.rstrip('Z')
+                return datetime.fromisoformat(v).date()
+            else:
+                return datetime.strptime(value, '%Y-%m-%d').date()
+        except Exception:
+            raise HTTPException(status_code=400, detail=f"Invalid date format: {value}")
+
     try:
+        # normalize dates to DATE (YYYY-MM-DD)
+        start_d = _parse_date(payload.startDate)
+        end_d = _parse_date(payload.endDate)
+
         # We keep a single row with id = 1
         cursor.execute(
             """
@@ -200,10 +224,10 @@ async def set_dates(payload: SetDatesPayload, user: dict = Depends(get_current_u
                 start_date = VALUES(start_date),
                 end_date = VALUES(end_date)
             """,
-            (payload.startDate, payload.endDate)
+            (start_d.isoformat(), end_d.isoformat())
         )
         cnx.commit()
-        return {"success": True, "message": "Voting dates set", "data": payload.dict()}
+        return {"success": True, "message": "Voting dates set", "data": {"startDate": start_d.isoformat(), "endDate": end_d.isoformat()}}
     except Error as err:
         print("DB error:", err)
         raise HTTPException(status_code=500, detail="Database error")
@@ -212,6 +236,21 @@ async def set_dates(payload: SetDatesPayload, user: dict = Depends(get_current_u
 # Public (auth required) endpoints to read data for voter UI
 @app.get("/candidates")
 async def list_candidates(user: dict = Depends(get_current_user)):
+    try:
+        cursor.execute("SELECT id, name, party, vote_count FROM candidates ORDER BY id ASC")
+        rows = cursor.fetchall()
+        return {"success": True, "candidates": rows}
+    except Error as err:
+        print("DB error:", err)
+        raise HTTPException(status_code=500, detail="Database error")
+
+
+@app.get("/public/candidates")
+async def public_list_candidates():
+    """Public read-only endpoint for listing candidates (no auth required).
+
+    This is safe because it only exposes public information (name, party, vote_count).
+    """
     try:
         cursor.execute("SELECT id, name, party, vote_count FROM candidates ORDER BY id ASC")
         rows = cursor.fetchall()
@@ -234,10 +273,14 @@ async def get_dates(user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail="Database error")
 
 
-@app.get("/has-voted")
-async def has_voted(user: dict = Depends(get_current_user)):
+@app.post("/has-voted")
+async def has_voted(request: Request, user: dict = Depends(get_current_user)):
     try:
-        cursor.execute("SELECT 1 FROM votes WHERE voter_id=%s", (user["voter_id"],))
+        body = await request.json()
+        wallet_address = body.get("walletAddress", "").lower()
+        # Check by wallet address if provided, otherwise fall back to voter_id
+        check_id = wallet_address if wallet_address else user["voter_id"]
+        cursor.execute("SELECT 1 FROM votes WHERE LOWER(voter_id)=%s", (check_id,))
         row = cursor.fetchone()
         return {"success": True, "hasVoted": bool(row)}
     except Error as err:
@@ -245,12 +288,20 @@ async def has_voted(user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail="Database error")
 
 
+class VotePayloadWithAddress(BaseModel):
+    candidateId: int
+    walletAddress: str = None
+
 @app.post("/vote")
-async def vote(payload: VotePayload, user: dict = Depends(get_current_user)):
+async def vote(payload: VotePayloadWithAddress, user: dict = Depends(get_current_user)):
     # Only voters can vote (accept both 'voter' and 'user' as voter roles)
     role = (user.get("role") or "").lower()
     if role not in ("voter", "user"):
         raise HTTPException(status_code=403, detail="Only voters can vote")
+    
+    # Use wallet address if provided, otherwise use JWT voter_id
+    voter_identifier = (payload.walletAddress or user["voter_id"]).lower()
+    
     try:
         # Check dates
         cursor.execute("SELECT start_date, end_date FROM voting_dates WHERE id = 1")
@@ -258,9 +309,29 @@ async def vote(payload: VotePayload, user: dict = Depends(get_current_user)):
         if not row:
             raise HTTPException(status_code=400, detail="Voting dates not set")
 
-        today = datetime.utcnow().date()
-        start_date = row["start_date"].date() if isinstance(row["start_date"], datetime) else row["start_date"]
-        end_date = row["end_date"].date() if isinstance(row["end_date"], datetime) else row["end_date"]
+        # Use server local date to match admin/browser local date inputs
+        today = datetime.now().date()
+
+        def _row_to_date(val):
+            if isinstance(val, datetime):
+                return val.date()
+            if isinstance(val, date):
+                return val
+            if isinstance(val, str):
+                # accept YYYY-MM-DD or ISO datetime
+                try:
+                    if 'T' in val:
+                        return datetime.fromisoformat(val.rstrip('Z')).date()
+                    return datetime.strptime(val, '%Y-%m-%d').date()
+                except Exception:
+                    return None
+            return None
+
+        start_date = _row_to_date(row.get("start_date"))
+        end_date = _row_to_date(row.get("end_date"))
+
+        if start_date is None or end_date is None:
+            raise HTTPException(status_code=400, detail="Voting dates not set or invalid")
 
         if not (start_date <= today <= end_date):
             raise HTTPException(status_code=400, detail="Voting is not active")
@@ -271,14 +342,14 @@ async def vote(payload: VotePayload, user: dict = Depends(get_current_user)):
             raise HTTPException(status_code=404, detail="Candidate not found")
 
         # Check if user already voted
-        cursor.execute("SELECT 1 FROM votes WHERE voter_id=%s", (user["voter_id"],))
+        cursor.execute("SELECT 1 FROM votes WHERE LOWER(voter_id)=%s", (voter_identifier,))
         if cursor.fetchone():
             raise HTTPException(status_code=400, detail="You have already voted")
 
         # Record vote and increment count atomically
         cursor.execute(
             "INSERT INTO votes (voter_id, candidate_id) VALUES (%s, %s)",
-            (user["voter_id"], payload.candidateId)
+            (voter_identifier, payload.candidateId)
         )
         cursor.execute(
             "UPDATE candidates SET vote_count = vote_count + 1 WHERE id=%s",
@@ -286,6 +357,69 @@ async def vote(payload: VotePayload, user: dict = Depends(get_current_user)):
         )
         cnx.commit()
         return {"success": True, "message": "Vote recorded"}
+    except Error as err:
+        cnx.rollback()
+        print("DB error:", err)
+        raise HTTPException(status_code=500, detail="Database error")
+
+
+@app.get("/voting-status")
+async def voting_status(user: dict = Depends(get_current_user)):
+    try:
+        cursor.execute("SELECT start_date, end_date FROM voting_dates WHERE id = 1")
+        row = cursor.fetchone()
+        if not row:
+            return {"success": True, "active": False, "reason": "no_dates_set", "today": str(datetime.now().date())}
+
+        def _row_to_date(val):
+            if isinstance(val, datetime):
+                return val.date()
+            if isinstance(val, date):
+                return val
+            if isinstance(val, str):
+                try:
+                    if 'T' in val:
+                        return datetime.fromisoformat(val.rstrip('Z')).date()
+                    return datetime.strptime(val, '%Y-%m-%d').date()
+                except Exception:
+                    return None
+            return None
+
+        start_date = _row_to_date(row.get('start_date'))
+        end_date = _row_to_date(row.get('end_date'))
+        today = datetime.now().date()
+
+        if start_date is None or end_date is None:
+            return {"success": True, "active": False, "reason": "invalid_dates", "today": str(today), "start": str(row.get('start_date')), "end": str(row.get('end_date'))}
+
+        active = (start_date <= today <= end_date)
+        return {"success": True, "active": active, "today": str(today), "startDate": start_date.isoformat(), "endDate": end_date.isoformat()}
+    except Error as err:
+        print("DB error:", err)
+        raise HTTPException(status_code=500, detail="Database error")
+
+
+@app.post("/admin/clear-candidates")
+async def clear_candidates(user: dict = Depends(get_current_user)):
+    """Admin-only: remove all candidates and votes so you can start fresh.
+
+    This deletes rows from `votes` and `candidates` and resets auto-increment counters.
+    """
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin privileges required")
+    try:
+        # delete votes first because of FK constraint
+        cursor.execute("DELETE FROM votes")
+        cursor.execute("DELETE FROM candidates")
+        # reset AUTO_INCREMENT for a clean start
+        try:
+            cursor.execute("ALTER TABLE candidates AUTO_INCREMENT = 1")
+            cursor.execute("ALTER TABLE votes AUTO_INCREMENT = 1")
+        except Exception:
+            # some MySQL setups may not allow altering; ignore safely
+            pass
+        cnx.commit()
+        return {"success": True, "message": "All candidates and votes cleared"}
     except Error as err:
         cnx.rollback()
         print("DB error:", err)

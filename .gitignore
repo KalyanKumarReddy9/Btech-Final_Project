@@ -1,0 +1,30 @@
+# Node modules
+node_modules/
+**/node_modules/
+
+# PDF files
+*.pdf
+
+# README (keeping only main readme)
+# README.md files in subdirectories
+**/README.md
+
+# Environment variables
+.env
+.env.local
+
+# Build artifacts
+build/
+dist/
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
